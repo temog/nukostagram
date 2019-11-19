@@ -1,0 +1,696 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<!-- ios ホーム画面用 start -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="ぬこすたぐらむ">
+<link rel="icon" type="image/png" href="/icon/144_bgwhite.png">
+<link rel="apple-touch-icon" href="/icon/144_bgwhite.png?v=1.0" sizes="144x144">
+<!-- ios ホーム画面用 end -->
+<title>ぬこすたぐらむ</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siimple@3.1.1/dist/siimple.min.css">
+<link href="https://fonts.googleapis.com/earlyaccess/nicomoji.css" rel="stylesheet" />
+</head>
+<body>
+
+<div id="app" class="siimple-grid">
+
+  <div :class="{ active: sideMenu }" class="sideMenu">
+    <div @click="sideMenuOff" class="bg"></div>
+    <div class="siimple-menu">
+      <div class="siimple-menu-group">設定</div>
+
+      <a class="siimple-menu-item">
+        <div class="switch">
+          <label class="siimple-label">通知を許可する</label>
+          <div class="siimple-switch">
+              <input type="checkbox" id="notifySwitch" v-model="notify">
+              <label for="notifySwitch"></label>
+              <div></div>
+          </div>
+        </div>
+        <div class="siimple-p">
+          写真が追加されたら通知します
+        </div>
+      </a>
+
+      <a class="siimple-menu-item">
+        <div class="siimple-h6">Service Workerを更新する</div>
+        <div @click="updateServiceWorker" class="siimple-btn siimple-btn--primary">更新</div>
+      </a>
+
+    </div>
+  </div>
+
+  <div class="siimple-navbar siimple-navbar--navy">
+    <div @click="showSideMenu" class="hamburger"></div>
+    <a class="siimple-navbar-title nicomoji">ぬこすたぐらむ</a>
+    <a class="siimple-navbar-subtitle">pwa test page</a>
+  </div>
+
+  <div class="siimple-grid-row">
+
+    <div class="siimple-grid-col siimple-grid-col--12">
+      <div v-for="(row, key) in metroImage" :key="key" :class="row.rowCss">
+        <div v-for="(img, key2) in row.image" :key="key2"
+          class="item" :class="imgCss(img.css)"
+          :style="setStyle(img)" @click="showImage(img)">
+        </div>
+      </div>
+    </div>
+
+    <div v-if="loading" class="siimple-grid-col siimple-grid-col--12">
+      <div class="siimple-spinner siimple-spinner--navy"></div>
+    </div>
+
+    <div v-if="endImage" class="siimple-grid-col siimple-grid-col--12">
+      <div class="siimple-alert siimple-alert--warning">
+        全ての画像を表示しました
+      </div>
+    </div>
+
+    <div v-if="!online" class="siimple-grid-col siimple-grid-col--12">
+      <div class="siimple-alert siimple-alert--warning">
+        オフラインです。画像取得が出来ません (´・ω・`)
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 以下 modal -->
+  <div v-if="modal.title" class="modal siimple-card">
+    <div class="siimple-card-body">
+      <div @click="modalOff" class="siimple-close"></div>
+      <div class="siimple-card-title">{{ modal.title }}</div>
+      {{ modal.message }}
+    </div>
+  </div>
+
+</div>
+
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+<script>
+var app = new Vue({
+  el: '#app',
+  data: {
+    message: 'hello',
+    image: [],
+    metroImage: [],
+    sw: null,
+    webPushPublicKey: null,
+    success: {
+      registerSubscription: null,
+      endpoint: null
+    },
+    getImageAutoTimer: null,
+    page: 0,
+    loading: false,
+    endImage: false,
+    online: false,
+    sideMenu: false,
+    modal: {
+      title: null,
+      message: null,
+    }
+  },
+  mounted () {
+    console.log('mounted')
+
+    // service worker 登録
+    this.registerServiceWorker()
+
+    // web push 公開鍵は常に保存しておく
+    this.getWebPushPublicKey()
+
+    // 画像取得
+    this.getImage()
+
+    // スクロールで画像取得
+    this.getImageScroll()
+  },
+  computed: {
+    notify: {
+      get () {
+        const status = this.success.registerSubscription
+        if (status === null || status === false){
+          return false;
+        }
+
+        return true;
+      },
+      set (value) {
+        console.log(value);
+        const status = this.success.registerSubscription
+        console.log(status);
+
+        // 通知ブロック
+        if (value && status === false) {
+          this.modalOn(
+            '通知がブロックされています',
+            'サイトの設定から通知を許可してください'
+          );
+          return
+        }
+
+        // 通知許可
+        if (value && status === null) {
+          console.log('kyoka');
+          this.authWebPush();
+        }
+
+        // 通知拒否
+        if (! value && status) {
+          this.unSubscribe();
+        }
+      }
+    }
+  },
+  methods: {
+    modalOn (title, message) {
+      this.modal.title = title 
+      this.modal.message = message
+    },
+    modalOff () {
+      this.modal.title = null
+      this.modal.message = null
+    },
+    showSideMenu () {
+      this.sideMenu = true
+    },
+    sideMenuOff () {
+      this.sideMenu = false
+    },
+    networkOnline () {
+      const online = navigator.onLine
+      this.online = online
+      return online
+    },
+    getImage () {
+      if (this.endImage || !this.networkOnline()){
+        return
+      }
+
+      this.loading = true
+      const self = this
+      this.post('/api.php', {action: 'getImage', limit: 15, page: this.page}).then(response => {
+        self.loading = false
+        if (! response.data) {
+          return
+        }
+
+        // もう画像なし
+        if(response.data.images === false){
+          self.endImage = true
+          return
+        }
+
+        self.image = response.data.images
+
+        // メトロスタイル用にデータ作る
+        self.createMetroData(response.data.images)
+      })
+    },
+    showImage (img) {
+      console.log(img)
+      if (! img.css) {
+        img.css = 'select'
+      }
+      else if(img.css.indexOf('select') === -1){
+        img.css = img.css.trim() + ' select'
+      }
+      else {
+        img.css = img.css.replace('select', '')
+      }
+
+      const fullSize = this.getFullSize(img)
+      img.fullWidth = fullSize.width
+      img.fullHeight = fullSize.height
+    },
+    getFullSize (img) {
+
+      let width = 0
+      let height = 0
+      if (img.css.indexOf('select') !== -1){
+        width = window.innerWidth
+        const per = width / img.width
+        height = per * img.height
+
+        height = window.innerHeight
+      }
+      return {width: width, height: height}
+    },
+    getImageScroll () {
+      const self = this
+
+      window.addEventListener("scroll", () => {
+        clearTimeout(self.getImageAutoTimer)
+        self.getImageAutoTimer = setTimeout(function(){
+          self.getImageAuto()
+        }, 500)
+      });
+    },
+    getImageAuto () {
+      const innerHeight = window.innerHeight
+      const height = document.documentElement.scrollHeight - 50
+      const scrollTop = document.documentElement.scrollTop || document.body.scrollTop
+      const current = scrollTop + innerHeight
+
+      console.log(document.documentElement.scrollTop + ' / ' + innerHeight)
+      console.log(document.body.scrollTop)
+      if(this.loading){
+        return
+      }
+      console.log(current + ' / ' + height)
+
+      if(current < height){
+        return
+      }
+
+      this.page++
+      this.getImage()
+    },
+    imgCss (css) {
+      return css
+    },
+    setStyle (img) {
+      const fullWidth = img.fullWidth ? img.fullWidth + 'px' : 'auto'
+      const fullHeight = img.fullHeight ? img.fullHeight + 'px' : null
+      const style = {
+        backgroundImage: 'url(' + img.baseUrl + ')',
+        width: fullWidth
+      }
+
+      if(fullHeight){
+        style.height = fullHeight
+      }
+
+      return style
+      /*
+      backgroundImage: `url('${img.baseUrl}')` }
+      */
+    },
+    createMetroData (images) {
+
+      const self = this
+      const metro = []
+      let rowImg = []
+      let gc = null
+      for(let index = 0; index < images.length; index++){
+        const i = images[index]
+
+        // 横長
+        const col2 = i.width > i.height
+
+        const img = {
+          baseUrl: i.baseUrl,
+          width: i.width,
+          height: i.height,
+          css: null
+        }
+
+        // 画像1個め
+        if(!rowImg.length){
+          if(col2){
+            img.css = 'col2-left'
+          }
+        }
+        // 画像2個め
+        else if(rowImg.length === 1){
+          if(col2){
+            img.css = 'col2-right'
+          }
+        }
+        // 画像3個め
+        else if(rowImg.length === 2){
+          // 3個めで横長は新しい行にする
+          if(col2){
+            metro.push(self.createRowImg(rowImg, true))
+            rowImg = []
+            continue
+          }
+        }
+
+        rowImg.push(img)
+        const row = self.createRowImg(rowImg)
+        if(row){
+          metro.push(row)
+          rowImg = []
+        }
+      }
+
+      // 最後にあまってたら
+      if(rowImg.length == 2){
+        metro.push(self.createRowImg(rowImg, true))
+      }
+      else if(rowImg.length == 1){
+        metro.push({
+          rowCss: 'gc1',
+          image: rowImg
+        })
+      }
+
+      this.metroImage = this.metroImage.concat(metro)
+    },
+    createRowImg (rowImg, force2Colum) {
+
+      // 2個めだったら行完成させるか判定
+      if(rowImg.length == 2){
+        // 2つとも横長なので 2colum
+        if(force2Colum || rowImg[0].css && rowImg[1].css){
+          return {
+            rowCss: 'gc2',
+            image: rowImg
+          }
+        }
+        // どっちか横長 なので 3colum
+        else if(rowImg[0].css || rowImg[1].css){
+          return {
+            rowCss: 'gc3',
+            image: rowImg
+          }
+        }
+      }
+
+      // 3こめ
+      if(rowImg.length == 3){
+        return {
+          rowCss: 'gc3',
+          image: rowImg
+        }
+      }
+
+      return false
+    },
+    registerServiceWorker () {
+      if (! 'serviceWorker' in navigator) {
+        alert('Service Worker 非対応ブラウザでは')
+        return
+      }
+
+      const self = this
+
+      navigator.serviceWorker.register("serviceWorker.js").then(function(registration) {
+        console.log("serviceWorker registered.")
+        self.sw = registration
+
+        self.checkRegistered()
+
+      }).catch(function(error) {
+        console.warn("serviceWorker error.", error)
+      })
+    },
+    updateServiceWorker () {
+      this.sw.update();
+    },
+    getWebPushPublicKey () {
+      if (!this.networkOnline()){
+        return
+      }
+      const self = this
+      this.post('/api.php', {action: 'getPublicKey'}).then(response => {
+        if (response.data) {
+          self.webPushPublicKey = response.data
+        }
+      })
+    },
+    // 通知許可してるか
+    checkRegistered () {
+
+      if ('Notification' in window === false) {
+        return
+      }
+
+      const self = this
+
+      if (Notification.permission === 'denied') {
+        self.success.registerSubscription = false
+      }
+
+      this.sw.pushManager.getSubscription().then(function(subscription) {
+        if(! subscription){
+          return
+        }
+        const sub = subscription.toJSON()
+        self.success.registerSubscription = true
+        self.success.endpoint = sub.endpoint
+
+        // 毎回サーバに送ってしまうがテストなのでよしとしよう・・・
+        self.registerSubscription(subscription)
+      })
+    },
+    authWebPush () {
+      const self = this
+      console.log(self.webPushPublicKey)
+      self.sw.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: self.urlB64ToUint8Array(self.webPushPublicKey)
+      }).then(subscription => {
+        // subscription の中身をサーバへ保存
+        self.registerSubscription(subscription)
+      })
+    },
+    unSubscribe () {
+      const self = this
+      self.sw.pushManager.getSubscription().then(function(subscription) {
+        subscription.unsubscribe().then(function(successful) {
+          // You've successfully unsubscribed
+          console.log('通知拒否成功 本当はサーバに endpoint 送ってデータ消しこんだほうがいいかもしれない')
+          self.success.registerSubscription = null
+
+        }).catch(function(e) {
+          alert('通知拒否に失敗')
+        })
+      })
+    },
+    registerSubscription (subscription) {
+
+      if (!this.networkOnline()){
+        return
+      }
+
+      const self = this
+      const parameter = {
+        action: 'registerSubscription',
+        subscription: JSON.stringify(subscription.toJSON())
+      }
+      this.post('/api.php', parameter).then(response => {
+        if (response.status != 'success'){
+          alert('通知データ登録でエラー');
+          return
+        }
+
+        self.success.registerSubscription = true
+      })
+    },
+    post (url, data) {
+
+      const self = this
+      return new Promise(function (resolve, reject) {
+
+        const formData = self.createFormData(data)
+        fetch(url, {
+          method: 'POST',
+          body: formData
+        })
+        .then(res => res.json())
+        .then(json => {
+          resolve(json)
+        })
+      })
+    },
+    createFormData (data) {
+      const formData = new FormData()
+      for (const key in data) {
+        formData.append(key, data[key])
+      }
+      return formData
+    },
+    urlB64ToUint8Array (publicKey) {
+      const padding = '='.repeat((4 - publicKey.length % 4) % 4)
+      const base64 = (publicKey + padding).replace(/-/g, '+').replace(/_/g, '/')
+      const rawData = window.atob(base64)
+      const outputArray = new Uint8Array(rawData.length)
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i)
+      }
+      return outputArray
+    }
+  }
+})
+
+</script>
+
+<style>
+#app {
+  padding-bottom: 100px;
+}
+
+.nicomoji { font-family: "Nico Moji"; }
+
+.siimple-navbar-title {
+  font-size: 30px;
+  letter-spacing: 6px;
+  margin-left: 40px;
+}
+
+.gc1, .gc2, .gc3 {
+  display: grid;
+  grid-gap: 5px;
+  margin-bottom: 5px;
+}
+
+/* 3 colum */
+.gc3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+/* 2 colum */
+.gc2 {
+  grid-template-columns: 1fr 1fr;
+}
+/* 1 colum */
+.gc1 {
+  grid-template-columns: 1fr;
+}
+.item {
+  background-color:#000;
+  border-radius: 3px;
+  width: 100%;
+  height: 280px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition: all 300ms 0s ease;
+}
+.item.select {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  background-size: 90%;
+}
+.gc3 img, .gc2 img, .gc1 img {
+  width: 100%;
+}
+.gc3 .item.col2-left {
+  grid-column: 1 / 3;
+}
+.gc3 .item.col2-right {
+  grid-column: 2 / 4;
+}
+
+.hamburger {
+  border-top: 3px solid #fff;
+  border-bottom: 3px solid #fff;
+  width: 22px;
+  height: 11px;
+  position: absolute;
+  top: 25px;
+  cursor: pointer;
+}
+.hamburger:before {
+  content:"";
+  display:block;
+  border-top: 3px solid #fff;
+  margin-top: 4px;
+}
+.sideMenu {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 999;
+  animation: fade 0.5s ease 0s;
+}
+.sideMenu.active {
+  display: block;
+}
+.sideMenu .bg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 0;
+}
+.sideMenu .siimple-menu {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  padding: 10px;
+  background-color: #fff;
+  z-index: 1;
+}
+.sideMenu.active .siimple-menu {
+  left: 0;
+  animation: menuOn 0.5s ease 0s;
+}
+
+.modal {
+  position: fixed;
+  top: 30%;
+  left: 5%;
+  width: 90%;
+  z-index: 99999;
+  background-color: #fff;
+  box-shadow: 0 4px 12px #484848;
+  animation: fade 0.5s ease 0s;
+  border-radius: 5px;
+}
+.modal .siimple-close {
+  float: right;
+  cursor: pointer;
+}
+
+.siimple-menu-item {
+  height: auto;
+}
+.switch:after {
+  content:"";
+  display: block;
+  clear:both;
+}
+
+@keyframes menuOn {
+  from {
+    left: -100%;
+  }
+  to {
+    left: 0;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1; 
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .item {
+    height: 190px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .siimple-navbar-subtitle {
+    display: none;
+  }
+}
+
+</style>
+
+</body>
+</html>

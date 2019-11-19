@@ -1,0 +1,7 @@
+{
+    "require": {
+        "minishlink/web-push": "^4.0",
+        "mongodb/mongodb": "^1.5",
+        "vlucas/phpdotenv": "^3.6"
+    }
+}

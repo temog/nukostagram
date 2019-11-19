@@ -1,0 +1,25 @@
+{
+    "name": "ぬこすたぐらむ - pwa test page",
+    "short_name": "ぬこすたぐらむ",
+    "icons": [
+        {
+            "src": "/icon/144_bgwhite.png",
+            "sizes": "144x144",
+            "type": "image/png"
+        },
+        {
+            "src": "/icon/192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icon/512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "start_url": "/",
+    "display": "standalone",
+    "theme_color": "#e91e63",
+    "background_color": "#333"
+}
