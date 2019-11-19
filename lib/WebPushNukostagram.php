@@ -79,7 +79,7 @@ class WebPushNukostagram
     {
         return [
             'VAPID' => [
-                'subject' => 'mailto:temoog@gmail.com',
+                'subject' => 'mailto:' . getenv('VAPID_MAILTO'),
                 'publicKey' => getenv('WEBPUSH_PUBLIC_KEY'),
                 'privateKey' => getenv('WEBPUSH_PRIVATE_KEY'),
             ]

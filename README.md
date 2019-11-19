@@ -24,6 +24,7 @@ WEBPUSH_PUBLIC_KEY=
 WEBPUSH_PRIVATE_KEY=
 GOOGLE_PHOTO_CLIENT_ID=
 GOOGLE_PHOTO_CLIENT_SECRET=
+VAPID_MAILTO=YourEmail
 ```
 - webpush key は https://web-push-codelab.glitch.me/ から取得する
 - Google Photos は [このあたり参照](https://developers.google.com/photos/library/guides/get-started)

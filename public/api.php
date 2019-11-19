@@ -147,7 +147,7 @@ function getVapid()
 {
     return [
         'VAPID' => [
-            'subject' => 'mailto:temoog@gmail.com',
+            'subject' => 'mailto:' . getenv('VAPID_MAILTO'),
             'publicKey' => WEBPUSH_PUBLIC_KEY,
             'privateKey' => WEBPUSH_PRIVATE_KEY,
         ]
